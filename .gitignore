@@ -29,3 +29,7 @@ venv
 build
 dist
 neat_python.egg-info
+
+/__pycache__
+/.vscode
+/neatpso
