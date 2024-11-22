@@ -19,12 +19,12 @@ dimensions = [dim for dim in continuous_bounds] + ['criterion', 'optimizer']
 num_dimensions = len(dimensions)
 bounds = [b for b in continuous_bounds.values()] + [criterion_bounds, optimizer_bounds]
 
-# Initialize particles
-particles = np.random.uniform([b[0] for b in bounds], [b[1] for b in bounds], (num_particles, num_dimensions))
-particles = np.array([clip_particle(p) for p in particles])
-velocities = np.zeros_like(particles)
-personal_best_positions = np.copy(particles)
-personal_best_scores = np.array([fitness_eval(p) for p in particles])
+# Initialize swarm
+swarm = np.random.uniform([b[0] for b in bounds], [b[1] for b in bounds], (num_particles, num_dimensions))
+swarm = np.array([clip_particle(p) for p in swarm])
+velocities = np.zeros_like(swarm)
+personal_best_positions = np.copy(swarm)
+personal_best_scores = np.array([fitness_eval(p) for p in swarm])
 global_best_position = personal_best_positions[np.argmin(personal_best_scores)]
 global_best_score = np.min(personal_best_scores)
 
@@ -47,15 +47,16 @@ def fitness_eval(particle):
     # Create model with given particle parameters
     model = ModelHandler(list(particle))
 
-    # Train model and run model to get accuracy
+    # Train model and run model to get accuracy error
     model.train(train_loader=None) # TODO Change this to the actual train loader
-    accuracy = model.evaluate(test_loader=None) # TODO Change this to the actual test loader
+    error = 1 - model.evaluate(test_loader=None) # TODO Change this to the actual test loader
 
     # Get complexity of the model (number of parameters)
     complexity = model.count_parameters()
 
-    # Return fitness score (want to minimize, i.e. less is better)
-    return 1 - accuracy
+    # Return fitness score
+    # return (error, complexity)
+    return error
 
 
 # PSO loop
@@ -67,20 +68,20 @@ def run_pso():
             r1, r2 = np.random.rand(), np.random.rand()
             velocities[i] = (
                 w * velocities[i] # Influence of the current velocity
-                + c1 * r1 * (personal_best_positions[i] - particles[i]) # Influence of the particle memory
-                + c2 * r2 * (global_best_position - particles[i]) # Influence of the swarm
+                + c1 * r1 * (personal_best_positions[i] - swarm[i]) # Influence of the particle memory
+                + c2 * r2 * (global_best_position - swarm[i]) # Influence of the swarm
             )
 
             # Update position
-            particles[i] += velocities[i]
-            particles[i] = clip_particle(particles[i])
+            swarm[i] += velocities[i]
+            swarm[i] = clip_particle(swarm[i])
 
             # Evaluate fitness
-            fitness = fitness_eval(particles[i])
+            fitness = fitness_eval(swarm[i])
 
             # Update personal best
             if fitness < personal_best_scores[i]:
-                personal_best_positions[i] = particles[i]
+                personal_best_positions[i] = swarm[i]
                 personal_best_scores[i] = fitness
 
         # Update global best

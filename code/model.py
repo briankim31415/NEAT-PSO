@@ -10,7 +10,9 @@ criterion_mapping = { int(k): getattr(torch.nn, v) for k, v in config['model_cri
 optimizer_mapping = { int(k): getattr(torch.optim, v) for k, v in config['model_optimizer_mapping'].items() }
 
 
+# Particle model class
 class Model(nn.Module):
+    # Create CNN with given parameters
     def __init__(self, num_conv_layers, num_filters, dropout_rate):
         super(Model, self).__init__()
         self.conv_layers = nn.Sequential(
@@ -32,9 +34,11 @@ class Model(nn.Module):
         return x
 
 
+# Manage particle model
 class ModelHandler:
+    # Parse through particle parameters and create model
     def __init__(self, particle: list):
-        # Get particle particle
+        # Get particle parameters
         num_conv_layers = particle[0]
         num_filters = particle[1]
         dropout_rate = particle[2]
@@ -48,7 +52,7 @@ class ModelHandler:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-
+    # Train model
     def train(self, train_loader):
         criterion = self.criterion_choice()
         optimizer = self.optimizer_choice(self.model.parameters(), lr=self.lr)
@@ -63,6 +67,7 @@ class ModelHandler:
                 loss.backward()
                 optimizer.step()
 
+    # Evaluate model
     def evaluate(self, test_loader):
         self.model.eval()
         correct, total = 0, 0
@@ -74,9 +79,11 @@ class ModelHandler:
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
 
+        # Calculate and return accuracy
         accuracy = correct / total
         return accuracy
     
+    # Count number of parameters in model
     def count_parameters(self):
         total_params = sum(p.numel() for p in self.model.parameters())
         return total_params
