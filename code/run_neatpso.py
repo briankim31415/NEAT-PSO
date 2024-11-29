@@ -1,6 +1,6 @@
 import numpy as np
 
-from pso import run_pso
+from mopso import run_pso
 
 # Load config file variables
 from config_loader import load_config
