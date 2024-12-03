@@ -9,15 +9,15 @@ class Hyperparameters(object):
             'weight' : 1.0,
             'bias' : 1.0
         }
-        self.default_activation = sigmoid
+        self.default_activation = relu
 
         self.max_fitness = float('inf')
-        self.max_generations = float('inf')
+        self.max_generations = 50
         self.max_fitness_history = 30
 
         self.breed_probabilities = {
-            'asexual' : 0.5,
-            'sexual' : 0.5
+            'asexual' : 1.0,    # change temporarily
+            'sexual' : 0.0
         }
         self.mutation_probabilities = {
             'node' : 0.01,
@@ -27,7 +27,7 @@ class Hyperparameters(object):
             'bias_perturb' : 0.3,
             'bias_set' : 0.1,
 
-            'conv_add_node': 0.5,
-            'conv_delete_node': 0.2,
-            'conv_kernel': 0.3,
+            'conv_add_node': 0.15,
+            'conv_delete_node': 0.05,
+            'conv_kernel': 0.8,
         }

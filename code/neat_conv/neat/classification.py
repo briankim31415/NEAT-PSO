@@ -5,46 +5,77 @@ import torch
 
 
 from hyperparameters import Hyperparameters
-from neat import Brain
+from neat import Brain, ConvBrain
 from genome import ConvolutionalGenome, ConvNode, PoolNode
 from activations import relu, sigmoid
 
 from dataloader import DataLoader
 
-# def fitness(expected, output):
-#     """Calculates the similarity score between expected and output."""
-#     s = 0
-#     for i in range(4):
-#         s += (expected[i] - output[i])**2
-#     return 1/(1 + math.sqrt(s))
-
-# def evaluate(genome):
-#     """Evaluates the current genome."""
-#     f1 = genome.forward([0.0, 0.0])[0]
-#     f2 = genome.forward([1.0, 0.0])[0]
-#     f3 = genome.forward([0.0, 1.0])[0]
-#     f4 = genome.forward([1.0, 1.0])[0]
-#     return fitness([0.0, 1.0, 1.0, 0.0], [f1, f2, f3, f4])
-
-def main():
-
-    cifar = DataLoader('cifar')
-
-    sample_cifar_batch = cifar.data[0]
-    sample_image = sample_cifar_batch[0]
-    print(sample_image.shape)
-
+def load_image(flattened_image):
     # Reshape the input to separate channels (1024 values for each R, G, B)
-    R = sample_image[:1024].reshape(32, 32)  # Red channel
-    G = sample_image[1024:2048].reshape(32, 32)  # Green channel
-    B = sample_image[2048:].reshape(32, 32)  # Blue channel
+    R = flattened_image[:1024].reshape(32, 32)  # Red channel
+    G = flattened_image[1024:2048].reshape(32, 32)  # Green channel
+    B = flattened_image[2048:].reshape(32, 32)  # Blue channel
 
     # Stack the channels to create a 3x32x32 image
     output_image = np.stack((R, G, B), axis=0)
     output_image = np.random.rand(1, 3, 32, 32).astype(np.float32) 
     output_image = torch.tensor(output_image)
 
+    return output_image
+
+
+def fitness(expected, output):
+    """Calculates the similarity score between expected and output."""
+    num_correct = 0
+    for i in range(len(output)):
+        num_correct += (expected[i] == output[i])
+
+    print(f'Classification Accuracy: {num_correct / len(output)}')
+    
+    return num_correct / len(output)
+
+def evaluate(genome, images, labels):
+    """Evaluates the current genome."""
+    print("IN EVALUATE")
+    predictions = []
+    for i in range(10):
+        loaded = load_image(images[i])
+        output_label = genome.forward(loaded)
+        predictions.append(output_label)
+    return fitness(labels, predictions)
+
+def main():
+    cifar = DataLoader('cifar')
+    sample_cifar_batch = cifar.data[0]
+    sample_image = sample_cifar_batch[0]
+    NUM_IN_BATCH = sample_cifar_batch.shape[0]
+    labels = cifar.labels[0]
+   
     hyperparameters = Hyperparameters()
+    brain = ConvBrain(conv_inputs=3072,
+                      conv_outputs=128,
+                      dense_inputs=128,
+                      dense_outputs=10,
+                      population=5,
+                      hyperparams=hyperparameters)
+    
+    brain.generate()
+    print("Training...")
+    while brain.should_evolve():
+        brain.evaluate_parallel(evaluate, images=sample_cifar_batch, labels=labels)
+
+        # Print training progress
+        current_gen = brain.get_generation()
+        current_best = brain.get_fittest()
+        print("Current Accuracy: {:.2f}% | Generation {}/{}".format(
+            current_best.get_fitness() * 100, 
+            current_gen, 
+            hyperparameters.max_generations
+        ))
+
+    return
+
 
     sample_conv_genome = ConvolutionalGenome(conv_input_dim=3072,
                                              conv_output_dim=128,

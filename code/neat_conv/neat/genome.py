@@ -41,7 +41,16 @@ class PoolNode(object):
         self.activation = activation
 
         
-# TODO: need to implement convolutions for distance
+def conv_genomic_distance(conv_genome_a, conv_genome_b, distance_weights):
+    # TODO: need to implement convolutions for distance
+    print("IN CONV_GENOMIC_DISTANCE")
+    print(conv_genome_a, conv_genome_b)
+
+    conv_distance = 0
+    dense_distance = genomic_distance(conv_genome_a.dense_layers, conv_genome_b.dense_layers, distance_weights)
+
+    return conv_distance + dense_distance
+
 def genomic_distance(a, b, distance_weights):
     """Calculate the genomic distance between two genomes."""
     a_edges = set(a._edges)
@@ -348,9 +357,10 @@ class ConvolutionalGenome(BaseGenome):
             print(f'Output: {output}')
 
             probabilities = softmax(output)
+
             print(f'Softmax: {probabilities}')
     
-        return probabilities
+        return np.argmax(probabilities)
         
     def mutate(self, probabilities):
         print("ConvGenome Mutate")
@@ -422,7 +432,7 @@ class ConvolutionalGenome(BaseGenome):
             chosen_conv_node = mutatable_conv_nodes[random.randint(0, len(mutatable_conv_nodes) - 1)]
             # print(chosen_conv_node.filter_weights)
             filter_shape = chosen_conv_node.filter_weights.shape
-            noise = np.random.normal(0, 1, filter_shape)
+            noise = np.random.uniform(-10, 10, filter_shape)
             chosen_conv_node.filter_weights += noise
             # print(chosen_conv_node.filter_weights)
 
