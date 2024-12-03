@@ -28,6 +28,24 @@ from dataloader import DataLoader
 
 def main():
 
+    cifar = DataLoader('cifar')
+
+    sample_cifar_batch = cifar.data[0]
+    sample_image = sample_cifar_batch[0]
+    print(sample_image.shape)
+
+    # Reshape the input to separate channels (1024 values for each R, G, B)
+    R = sample_image[:1024].reshape(32, 32)  # Red channel
+    G = sample_image[1024:2048].reshape(32, 32)  # Green channel
+    B = sample_image[2048:].reshape(32, 32)  # Blue channel
+
+    # Stack the channels to create a 3x32x32 image
+    output_image = np.stack((R, G, B), axis=0)
+    output_image = np.random.rand(1, 3, 32, 32).astype(np.float32) 
+    output_image = torch.tensor(output_image)
+
+    hyperparameters = Hyperparameters()
+
     sample_conv_genome = ConvolutionalGenome(conv_input_dim=3072,
                                              conv_output_dim=128,
                                              dense_input_dim=128,
@@ -35,11 +53,9 @@ def main():
                                              conv_default_activation=relu,
                                              dense_default_activation=relu)
     
-    # [output channels, input channels, kernel size, kernel size]
-
-
-    for _ in range(5):
-        sample_conv_genome.conv_add_node()
+    sample_conv_genome.generate()
+    for _ in range(20):
+        sample_conv_genome.mutate(hyperparameters.mutation_probabilities)
         # x = random.random()
         # if x <= 0.5:
         #     kernel_size = random.randint(3, 5)
@@ -54,34 +70,13 @@ def main():
             
         # sample_conv_genome._conv_nodes.append(new_node)
 
-    print(sample_conv_genome._conv_nodes)
-    
-    
-    sample_conv_genome.generate()
+        sample_conv_genome.generate()
 
-    print(sample_conv_genome.conv_layers)
-    print(sample_conv_genome.dense_layers)
+        print("Running forward...")
+        sample_conv_genome.forward(output_image)
 
-    cifar = DataLoader('cifar')
+   
 
-    sample_cifar_batch = cifar.data[0]
-    sample_image = sample_cifar_batch[0]
-    print(sample_image.shape)
-
-    # Reshape the input to separate channels (1024 values for each R, G, B)
-    R = sample_image[:1024].reshape(32, 32)  # Red channel
-    G = sample_image[1024:2048].reshape(32, 32)  # Green channel
-    B = sample_image[2048:].reshape(32, 32)  # Blue channel
-
-    # Stack the channels to create a 3x32x32 image
-    output_image = np.stack((R, G, B), axis=0)
-
-    output_image = np.random.rand(1, 3, 32, 32).astype(np.float32) 
-
-    output_image = torch.tensor(output_image)
-
-    print("Running forward...")
-    sample_conv_genome.forward(output_image)
 
 
     

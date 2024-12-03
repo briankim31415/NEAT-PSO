@@ -27,5 +27,7 @@ class Hyperparameters(object):
             'bias_perturb' : 0.3,
             'bias_set' : 0.1,
 
-            'conv_node': 0.5
+            'conv_add_node': 0.5,
+            'conv_delete_node': 0.2,
+            'conv_kernel': 0.3,
         }

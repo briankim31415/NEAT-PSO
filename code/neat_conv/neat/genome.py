@@ -192,9 +192,11 @@ class ConvolutionalGenome(BaseGenome):
         input_in_channels = 3
         self.choices = [16, 32, 64, 128, 256]
         self.kernel_choices = [1, 2, 4, 8]
+        self.stride_choices = [1, 2, 4]
         input_out_channels = self.choices[random.randint(0, len(self.choices) - 1)]
         input_kernel_size = self.kernel_choices[random.randint(0, len(self.kernel_choices) - 1)]
-        input_stride = random.randint(1, 3)
+
+        input_stride = self.stride_choices[random.randint(0, len(self.stride_choices) - 1)] 
         input_node = ConvNode(kernel_size=input_kernel_size,
                             stride=input_stride,
                             activation='relu',
@@ -202,6 +204,7 @@ class ConvolutionalGenome(BaseGenome):
 
         # Structure
         self._conv_nodes = [input_node] # the edges don't have weights for convolutions. order of conv nodes is order of net
+        self._conv_nodes_to_layers = {}
 
         self.conv_layers = None
         self.dense_layers = NeuralNetGenome(dense_input_dim, dense_output_dim, dense_default_activation)
@@ -222,6 +225,8 @@ class ConvolutionalGenome(BaseGenome):
         # Return logits or class probabilities needed for CIFAR-10 image classification
         """Generate a CNN based on the genome configuration."""
         layers = []
+        self._conv_nodes_to_layers.clear()
+
         relu = nn.ReLU(inplace=False)
         height, width, current_channels = 32, 32, 3  # for CIFAR, need to change
 
@@ -246,23 +251,23 @@ class ConvolutionalGenome(BaseGenome):
 
                 current_channels = conv_node.filter_weights.shape[0] 
                 layers.append(new_conv_layer)
+                self._conv_nodes_to_layers[conv_node] = new_conv_layer
                 layers.append(relu)
 
             elif isinstance(conv_node, PoolNode):
                 if conv_node.pool_operation == "max":
-                    layers.append(
-                        nn.MaxPool2d(
-                            kernel_size=conv_node.kernel_size,
-                            stride=conv_node.stride,
-                        )
-                    )
+                    new_pool_layer = nn.MaxPool2d(
+                                        kernel_size=conv_node.kernel_size,
+                                        stride=conv_node.stride,)
+                    layers.append(new_pool_layer)
+                    
                 elif conv_node.pool_operation == "avg":
-                    layers.append(
-                        nn.AvgPool2d(
-                            kernel_size=conv_node.kernel_size,
-                            stride=conv_node.stride,
-                        )
-                    )
+                    new_pool_layer = nn.AvgPool2d(
+                                        kernel_size=conv_node.kernel_size,
+                                        stride=conv_node.stride,
+                                    )
+                    layers.append(new_pool_layer)
+                self._conv_nodes_to_layers[conv_node] = new_pool_layer
                 layers.append(relu)  # Add activation
             
             if i < len(self._conv_nodes) - 1:
@@ -278,7 +283,7 @@ class ConvolutionalGenome(BaseGenome):
                     current_channels = next_node_channels_in  # Update channels after this transformation
         
         # Build the model
-        self.conv_layers = nn.Sequential(*layers)
+        self.conv_layers = layers
         self.dense_layers.generate()
 
         # raise NotImplementedError("[ConvGenome] Need to implement generate.")
@@ -287,11 +292,13 @@ class ConvolutionalGenome(BaseGenome):
         if self.conv_layers is None:
             raise ValueError("Call generate() before forward()")
         
+        model = nn.Sequential(*self.conv_layers)
+        
         with torch.no_grad():
             print('Passing through convolutional layers...')
 
-            for i, layer in enumerate(self.conv_layers):
-                if isinstance(layer, (nn.Conv2d, nn.MaxPool2d)):
+            for i, layer in enumerate(model):
+                if isinstance(layer, (nn.Conv2d, nn.MaxPool2d, nn.AvgPool2d)):
                     kernel_size = layer.kernel_size if isinstance(layer.kernel_size, tuple) else (layer.kernel_size, layer.kernel_size)
                     if x.shape[2] < kernel_size[0] or x.shape[3] < kernel_size[1]:
                         print(f"Skipping layer {layer} due to input size: {x.shape[2:]} being too small for kernel size: {kernel_size}")
@@ -301,8 +308,19 @@ class ConvolutionalGenome(BaseGenome):
                 x = layer(x)
                 print(x.shape)
 
-            print(f"Stopped iterating at {i}")
+            print(f"Stopped iterating at {i} / {len(self.conv_layers)} layers")
+
+            # Remove all layers / nodes such that no kernel size is TOO large for an input width/height
+            # at any given layer in the model
+            conv_layers_to_remove = self.conv_layers[i+1:]
             self.conv_layers = self.conv_layers[:i+1]
+            layers_to_nodes = { v:k for k, v in self._conv_nodes_to_layers.items() }
+            nodes_to_delete = set()
+            for layer_to_remove in conv_layers_to_remove:
+                if layer_to_remove in layers_to_nodes:
+                    nodes_to_delete.add(layers_to_nodes[layer_to_remove])
+            # Remove invalid nodes from genotype
+            self._conv_nodes = [node for node in self._conv_nodes if node not in nodes_to_delete]
 
             global_feature_dim = math.prod(x.shape[1:])
             num_channels = x.shape[1]
@@ -335,24 +353,24 @@ class ConvolutionalGenome(BaseGenome):
         return probabilities
         
     def mutate(self, probabilities):
-        # TODO
-        dense_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'dense' in k }
+        print("ConvGenome Mutate")
+        dense_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'conv' not in k }
         conv_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'conv' in k }
 
         conv_population = list(conv_layer_mutation_probs.keys())
         conv_weights = [probabilities[k] for k in conv_population]
         choice = random.choices(conv_population, weights=conv_weights)[0]
 
-        if choice == 'conv_node':
+        if choice == 'conv_add_node':
             self.conv_add_node()
-        else:
-            raise NotImplementedError("")
+        elif choice == 'conv_delete_node':
+            self.conv_delete_node()
+        elif choice == 'conv_kernel':
+            self.conv_shift_kernel()
 
         # Mutate the dense layers
         self.dense_layers.mutate(dense_layer_mutation_probs)
 
-        raise NotImplementedError("[ConvGenome] Need to implement mutate.")
-    
     def conv_add_node(self):
         probability_conv = random.random()
         # Choose random place to insert node
@@ -361,8 +379,7 @@ class ConvolutionalGenome(BaseGenome):
         next_node = self._conv_nodes[random_index + 1] if random_index + 1 < len(self._conv_nodes) else None
 
         new_kernel_size = self.kernel_choices[random.randint(1, len(self.kernel_choices) - 1)]
-        # random.randint(max(1, prev_node.kernel_size - 2), prev_node.kernel_size)
-        new_stride = random.randint(1, 3)
+        new_stride = self.stride_choices[random.randint(0, len(self.stride_choices) - 1)] 
 
         prev_out_channels = prev_node.filter_weights.shape[0] if isinstance(prev_node, ConvNode) else self.choices[random.randint(0, len(self.choices) - 1)]
         next_in_channels = next_node.filter_weights.shape[1] if isinstance(next_node, ConvNode) else self.choices[random.randint(0, len(self.choices) - 1)]
@@ -388,16 +405,32 @@ class ConvolutionalGenome(BaseGenome):
             
         self._conv_nodes.insert(random_index, new_node)
 
+    def conv_delete_node(self):
 
-    
+        # Don't delete input
+        print(f"Deleting node...")
+        if len(self._conv_nodes) > 1:
+            index_to_delete = random.randint(1, len(self._conv_nodes) - 1)
+            self._conv_nodes.pop(index_to_delete)
+            print(f"Deleted {index_to_delete}!")
+
 
     def conv_shift_kernel(self):
-        pass
+        print(f"Mutating convolutional kernel...")
+        mutatable_conv_nodes = [node for node in self._conv_nodes[1:] if isinstance(node, ConvNode)]
+        if len(mutatable_conv_nodes):
+            chosen_conv_node = mutatable_conv_nodes[random.randint(0, len(mutatable_conv_nodes) - 1)]
+            # print(chosen_conv_node.filter_weights)
+            filter_shape = chosen_conv_node.filter_weights.shape
+            noise = np.random.normal(0, 1, filter_shape)
+            chosen_conv_node.filter_weights += noise
+            # print(chosen_conv_node.filter_weights)
 
 
 class NeuralNetGenome(BaseGenome):
     """Class for a neural net genome used by the NEAT algorithm."""
     def __init__(self, inputs, outputs, default_activation):
+        print("Constructing NeuralNetGenome")
         # Nodes
         self._inputs = inputs
         self._outputs = outputs
@@ -408,7 +441,6 @@ class NeuralNetGenome(BaseGenome):
         # Structure
         self._edges = {} # (i, j) : Edge
         self._nodes = {} # NodeID : Node
-
 
         self._default_activation = default_activation
 
