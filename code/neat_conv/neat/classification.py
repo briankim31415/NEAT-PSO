@@ -36,14 +36,25 @@ def main():
                                              dense_default_activation=relu)
     
     # [output channels, input channels, kernel size, kernel size]
-    filter_weights_1 = np.ones((5, 3, 3, 3))
-    filter_weights_2 = np.ones((7, 6, 2, 2))
 
-    sample_conv_genome._conv_nodes = [
-            ConvNode(kernel_size=3, stride=random.randint(1, 3), activation="relu", filter_weights=filter_weights_1),
-            ConvNode(kernel_size=2, stride=random.randint(1, 3), activation="relu", filter_weights=filter_weights_2),
-            PoolNode(kernel_size=random.randint(1, 3), stride=random.randint(1, 3), pool_operation='max', activation="relu"),
-        ]
+
+    for _ in range(5):
+        sample_conv_genome.conv_add_node()
+        # x = random.random()
+        # if x <= 0.5:
+        #     kernel_size = random.randint(3, 5)
+        #     stride = random.randint(1, 3)
+        #     in_channels, out_channels = random.randint(1, 5), random.randint(1,5)
+        #     new_node = ConvNode(kernel_size=kernel_size, stride=stride, activation="relu", filter_weights=np.ones((out_channels, in_channels, kernel_size, kernel_size)))
+        # else:
+        #     kernel_size = random.randint(3, 5)
+        #     stride = random.randint(1, 3)
+        #     in_channels, out_channels = random.randint(1, 5), random.randint(1,5)
+        #     new_node = PoolNode(kernel_size=kernel_size, stride=stride, pool_operation='max', activation="relu")
+            
+        # sample_conv_genome._conv_nodes.append(new_node)
+
+    print(sample_conv_genome._conv_nodes)
     
     
     sample_conv_genome.generate()

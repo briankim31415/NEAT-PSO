@@ -41,7 +41,6 @@ class PoolNode(object):
         self.activation = activation
 
         
-
 # TODO: need to implement convolutions for distance
 def genomic_distance(a, b, distance_weights):
     """Calculate the genomic distance between two genomes."""
@@ -183,15 +182,26 @@ class ConvolutionalGenome(BaseGenome):
         super().__init__()
 
         # Nodes
-        self._conv_input_dim = conv_input_dim        # node -1   (input)
-        self._conv_output_dim = conv_output_dim      # node 0    (output)
+        self._conv_input_dim = conv_input_dim        # node 0   (input)
+        self._conv_output_dim = conv_output_dim      # node -1   (output)
         self._conv_default_activation = conv_default_activation
 
         self._conv_unhidden = 1  # last index of unhidden node (-1, 0)
         self._conv_max_node = 1   # for creating a new_node, start at 1 for convolutional nodes indexing only
 
+        input_in_channels = 3
+        self.choices = [16, 32, 64, 128, 256]
+        self.kernel_choices = [1, 2, 4, 8]
+        input_out_channels = self.choices[random.randint(0, len(self.choices) - 1)]
+        input_kernel_size = self.kernel_choices[random.randint(0, len(self.kernel_choices) - 1)]
+        input_stride = random.randint(1, 3)
+        input_node = ConvNode(kernel_size=input_kernel_size,
+                            stride=input_stride,
+                            activation='relu',
+                            filter_weights=np.ones((input_out_channels, input_in_channels, input_kernel_size, input_kernel_size)))
+
         # Structure
-        self._conv_nodes = [] # the edges don't have weights for convolutions. order of conv nodes is order of net
+        self._conv_nodes = [input_node] # the edges don't have weights for convolutions. order of conv nodes is order of net
 
         self.conv_layers = None
         self.dense_layers = NeuralNetGenome(dense_input_dim, dense_output_dim, dense_default_activation)
@@ -201,15 +211,13 @@ class ConvolutionalGenome(BaseGenome):
 
     
     def generate(self):
-        # TODO
-
         # Flow: CIFAR_image_input --> conv_input_dim --> _conv_nodes --> conv_output_dim == _dense_input_dim --> _dense_output_dim
 
         # TODO: Convolution code that iterates over self._conv_nodes, 
         #       creating a CNN of convolution / pooling / activation layers
 
         # TODO: Output of convolutional layer is input to dense layer
-        # Create ANN just like howh it's already done in NeuralNet Genome
+        # Create ANN just like how it's already done in NeuralNet Genome
 
         # Return logits or class probabilities needed for CIFAR-10 image classification
         """Generate a CNN based on the genome configuration."""
@@ -219,6 +227,7 @@ class ConvolutionalGenome(BaseGenome):
 
         # Create convolutional layers
         for i, conv_node in enumerate(self._conv_nodes):
+
             if isinstance(conv_node, ConvNode):
                 new_conv_layer = nn.Conv2d(
                         in_channels=current_channels,
@@ -226,10 +235,8 @@ class ConvolutionalGenome(BaseGenome):
                         kernel_size=conv_node.kernel_size,
                         stride=conv_node.stride,
                     )
-                
 
                 print(new_conv_layer)
-                #[output_channels, input_channels, kernel_size, kernel_size]
                 
                 if new_conv_layer.weight.shape != conv_node.filter_weights.shape:
                     raise ValueError(f"Filter weights {new_conv_layer.weight.shape} and {conv_node.filter_weights.shape} are not compatible")
@@ -270,11 +277,9 @@ class ConvolutionalGenome(BaseGenome):
                         layers.append(inter_layer)
                     current_channels = next_node_channels_in  # Update channels after this transformation
         
-
         # Build the model
         self.conv_layers = nn.Sequential(*layers)
         self.dense_layers.generate()
-
 
         # raise NotImplementedError("[ConvGenome] Need to implement generate.")
     
@@ -284,10 +289,20 @@ class ConvolutionalGenome(BaseGenome):
         
         with torch.no_grad():
             print('Passing through convolutional layers...')
-            for i, conv_layer in enumerate(self.conv_layers):
-                print(f' ({i}) {conv_layer}')
-                x = conv_layer(x)
+
+            for i, layer in enumerate(self.conv_layers):
+                if isinstance(layer, (nn.Conv2d, nn.MaxPool2d)):
+                    kernel_size = layer.kernel_size if isinstance(layer.kernel_size, tuple) else (layer.kernel_size, layer.kernel_size)
+                    if x.shape[2] < kernel_size[0] or x.shape[3] < kernel_size[1]:
+                        print(f"Skipping layer {layer} due to input size: {x.shape[2:]} being too small for kernel size: {kernel_size}")
+                        break  # Skip this layer
+
+                print(f'({i}) {layer}')
+                x = layer(x)
                 print(x.shape)
+
+            print(f"Stopped iterating at {i}")
+            self.conv_layers = self.conv_layers[:i+1]
 
             global_feature_dim = math.prod(x.shape[1:])
             num_channels = x.shape[1]
@@ -311,25 +326,73 @@ class ConvolutionalGenome(BaseGenome):
             x = x.squeeze().tolist()
             
             print('Passing through dense layers...')
-
-            print(self.dense_layers._nodes)
-
             output = self.dense_layers.forward(x)
-
             print(f'Output: {output}')
 
             probabilities = softmax(output)
-
             print(f'Softmax: {probabilities}')
     
-        return output
+        return probabilities
         
-    
     def mutate(self, probabilities):
         # TODO
+        dense_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'dense' in k }
+        conv_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'conv' in k }
+
+        conv_population = list(conv_layer_mutation_probs.keys())
+        conv_weights = [probabilities[k] for k in conv_population]
+        choice = random.choices(conv_population, weights=conv_weights)[0]
+
+        if choice == 'conv_node':
+            self.conv_add_node()
+        else:
+            raise NotImplementedError("")
+
+        # Mutate the dense layers
+        self.dense_layers.mutate(dense_layer_mutation_probs)
+
         raise NotImplementedError("[ConvGenome] Need to implement mutate.")
+    
+    def conv_add_node(self):
+        probability_conv = random.random()
+        # Choose random place to insert node
+        random_index = random.randint(1, len(self._conv_nodes))
+        prev_node = self._conv_nodes[random_index - 1]
+        next_node = self._conv_nodes[random_index + 1] if random_index + 1 < len(self._conv_nodes) else None
+
+        new_kernel_size = self.kernel_choices[random.randint(1, len(self.kernel_choices) - 1)]
+        # random.randint(max(1, prev_node.kernel_size - 2), prev_node.kernel_size)
+        new_stride = random.randint(1, 3)
+
+        prev_out_channels = prev_node.filter_weights.shape[0] if isinstance(prev_node, ConvNode) else self.choices[random.randint(0, len(self.choices) - 1)]
+        next_in_channels = next_node.filter_weights.shape[1] if isinstance(next_node, ConvNode) else self.choices[random.randint(0, len(self.choices) - 1)]
+
+        if probability_conv >= 0.5:
+            # add conv node
+            in_channels = prev_out_channels
+            out_channels = next_in_channels
+            # next_node.filter_weights.shape[1] if next_node else random.randint(1, 3)
+            new_node = ConvNode(kernel_size=new_kernel_size,
+                                stride=new_stride,
+                                activation='relu',
+                                filter_weights=np.ones((in_channels, out_channels, new_kernel_size, new_kernel_size)))
+            print(f"insert at {random_index}, prev_node shape is {prev_node}, new_node is {new_node}")
+        else:
+            # add relu node
+            pool_operations = ['max', 'avg']
+            new_pool_operation = pool_operations[random.randint(0, len(pool_operations) - 1)]
+            new_node = PoolNode(kernel_size=new_kernel_size,
+                                stride=new_stride,
+                                pool_operation=new_pool_operation,
+                                activation='relu')
+            
+        self._conv_nodes.insert(random_index, new_node)
 
 
+    
+
+    def conv_shift_kernel(self):
+        pass
 
 
 class NeuralNetGenome(BaseGenome):

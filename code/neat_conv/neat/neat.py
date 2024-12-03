@@ -9,6 +9,7 @@ from activations import *
 from hyperparameters import Hyperparameters
 from genome import *
 
+
 class Specie(object):
     print('adding new code')
     """A specie represents a set of genomes whose genomic distances 
@@ -71,6 +72,14 @@ class Specie(object):
         n = len(self._fitness_history)
         avg = sum(self._fitness_history) / n
         return avg > self._fitness_history[0] or n < self._max_fitness_history
+    
+
+class ConvSpecie(Specie):
+    def __init__(self, max_fitness_history, *members):
+        super().__init__(max_fitness_history, *members)
+
+    def breed(self, mutation_probabilities, breed_probabilities):
+        raise NotImplementedError("need to implement breed for convolutions")
 
 
 class Brain(object):
@@ -288,3 +297,16 @@ class Brain(object):
         """Return an instance of a population from disk."""
         with open(filename+'.neat', 'rb') as _in:
             return pickle.load(_in)
+
+class ConvBrain(Brain):
+    def __init__(self, inputs, outputs, population=100, hyperparams=Hyperparameters()):
+        super().__init__(inputs, outputs, population, hyperparams)
+
+    def generate(self):
+        raise NotImplementedError("need to impmlement generate")
+    
+    def classify_genome(self, genome):
+        raise NotImplementedError("need to classify genome")
+    
+    def evolve(self):
+        raise NotImplementedError("need to implement evolve")

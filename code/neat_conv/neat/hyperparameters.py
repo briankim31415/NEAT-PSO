@@ -25,5 +25,7 @@ class Hyperparameters(object):
             'weight_perturb' : 0.4,
             'weight_set' : 0.1,
             'bias_perturb' : 0.3,
-            'bias_set' : 0.1
+            'bias_set' : 0.1,
+
+            'conv_node': 0.5
         }
