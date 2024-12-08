@@ -10,12 +10,33 @@ from hyperparameters import Hyperparameters
 from neat import Brain, ConvBrain
 from genome import ConvolutionalGenome, ConvNode, PoolNode
 from activations import relu, sigmoid
+from torchvision.models import resnet18, ResNet18_Weights, vgg16, VGG16_Weights
+from torchvision import transforms
+from torchvision.datasets import ImageNet
 
 from dataloader import DataLoader
 
-import networkx as nx
-import matplotlib.pyplot as plt
+class ResNet18WithoutFC(nn.Module):
+    def __init__(self, resnet18_model):
+        super(ResNet18WithoutFC, self).__init__()
+        
+        # Remove the fully connected layer and use the feature extractor part
+        self.features = nn.Sequential(
+            *list(resnet18_model.children())[:-1]
+        )
 
+        # Freeze all parameters
+        for param in self.features.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        x = self.features(x)
+        return x 
+    
+pretrained = resnet18(weights=ResNet18_Weights.DEFAULT)
+pretrained.eval()
+
+resnet = ResNet18WithoutFC(pretrained)
 
 def load_image(flattened_image):
     # Reshape the input to separate channels (1024 values for each R, G, B)
@@ -25,10 +46,18 @@ def load_image(flattened_image):
 
     # Stack the channels to create a 3x32x32 image
     # Stack the channels and normalize to [0,1] range
-    output_image = np.stack((R, G, B), axis=0) / 255.0
-    output_image = torch.tensor(output_image).float().unsqueeze(0)
-    return output_image
+    output_image = np.stack((R, G, B), axis=0)
+    # Normalize the image to [0, 1] range and convert it to a tensor
+    output_image = torch.tensor(output_image, dtype=torch.float32) / 255.0
+    transform = transforms.Compose([
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010])
+    ])
+    output_image = transform(output_image)
 
+    # output_image = ResNet18_Weights.DEFAULT.transforms()(output_image)
+    output_image = output_image.unsqueeze(0)
+
+    return output_image
 
 def fitness(expected, output):
     """Calculates the similarity score between expected and output."""
@@ -42,12 +71,32 @@ def fitness(expected, output):
 def evaluate(genome, images, labels):
     """Evaluates the current genome."""
     predictions = []
-    NUM_TO_EVALUATE = 1000
+    NUM_TO_EVALUATE = 100
+    
     for i in range(NUM_TO_EVALUATE):
         loaded = load_image(images[i])
-        output_label = genome.forward(loaded)
-        predictions.append(output_label)
-    return fitness(labels[:NUM_TO_EVALUATE], predictions)
+        with torch.no_grad():
+            resnet_output = resnet(loaded)
+            resnet_output = torch.flatten(resnet_output)
+
+            cifar_output = genome.forward(list(resnet_output.squeeze(0)))
+
+            output = []
+            for tensor in cifar_output:
+                if isinstance(tensor, torch.Tensor):
+                    output.append(tensor.item())
+                else:
+                    output.append(tensor)
+
+            # Convert to float tensor before applying softmax
+            output_tensor = torch.tensor(output, dtype=torch.float32)
+            softmax = torch.nn.Softmax(dim=0)
+            prob = softmax(output_tensor)
+            predicted_class = torch.argmax(prob).item()
+            predictions.append(predicted_class)
+    
+    accuracy = fitness(labels[:NUM_TO_EVALUATE], predictions)
+    return float(accuracy)  # Ensure we return a Python float
 
 def main():
     cifar = DataLoader('cifar')
@@ -56,14 +105,31 @@ def main():
     NUM_IN_BATCH = sample_cifar_batch.shape[0]
     labels = cifar.labels[0]
     sample_label = labels[0]
-   
+
+    # num_total, num_correct = 0, 0
+    # for i in range(10):
+    #     sample_image, sample_label = sample_cifar_batch[i], labels[i]
+    #     x = load_image(sample_image)
+    #     output = resnet(x)
+    #     softmax = torch.nn.Softmax(dim=1)
+    #     prob = softmax(output)
+ 
+    #     predicted_class = torch.argmax(prob)
+    #     print(predicted_class, sample_label)
+    #     if predicted_class == sample_label:
+    #         num_correct += 1
+    #     num_total += 1
+    #     # print(predicted_class, sample_label)
+
+
+    # print(f'Accuracy: {(num_correct / num_total) * 100}%')
+        
+
     hyperparameters = Hyperparameters()
-    brain = ConvBrain(conv_inputs=3072,
-                      conv_outputs=1028,
-                      dense_inputs=1028,
-                      dense_outputs=10,
-                      population=20,
-                      hyperparams=hyperparameters)
+    brain = Brain(inputs=512, 
+                  outputs=10, 
+                  population=150, 
+                  hyperparams=hyperparameters)
     
     brain.generate()
     print("Training...")
@@ -78,17 +144,11 @@ def main():
             hyperparameters.max_generations
         ))
 
-    for specie in brain.get_species():
-        for individual in specie._members:
-            print(individual._conv_nodes)
-            individual.generate()
-            print(nn.Sequential(*individual.conv_layers))
-            print(individual.forward(load_image(sample_image)), sample_label)
-            print(f'Fitness: {individual.get_fitness()}')
-
+  
     best = brain.get_fittest()
+    best_accuracy = evaluate(brain, sample_cifar_batch, labels[:len(sample_cifar_batch)])
+    print(f'Best Accuracy: {best_accuracy}')
 
-    print(nn.Sequential(*best.conv_layers))
 
     # Print dense layers...
     edges = best.dense_layers.get_edges()
@@ -148,63 +208,6 @@ def main():
 
         print("Running forward...")
         sample_conv_genome.forward(output_image)
-
-   
-
-
-
-    
-
-    # hyperparams = Hyperparameters()
-    # hyperparams.max_generations = 300
-
-    # brain = Brain(inputs=2, 
-    #               outputs=1, 
-    #               population=150, 
-    #               hyperparams=hyperparams)
-    # brain.generate()
-    
-    # print("Training...")
-    # while brain.should_evolve():
-    #     brain.evaluate_parallel(evaluate)
-
-    #     # Print training progress
-    #     current_gen = brain.get_generation()
-    #     current_best = brain.get_fittest()
-    #     print("Current Accuracy: {:.2f}% | Generation {}/{}".format(
-    #         current_best.get_fitness() * 100, 
-    #         current_gen, 
-    #         hyperparams.max_generations
-    #     ))
-
-    # best = brain.get_fittest()
-    # f1 = best.forward([0.0, 0.0])[0]
-    # f2 = best.forward([1.0, 0.0])[0]
-    # f3 = best.forward([0.0, 1.0])[0]
-    # f4 = best.forward([1.0, 1.0])[0]
-    # fit = fitness([0.0, 1.0, 1.0, 0.0], [f1, f2, f3, f4])
-
-    # edges = best.get_edges()
-    # graph = {}
-    # for (i, j) in edges:
-    #     if not edges[(i, j)].enabled:
-    #         continue
-    #     if i not in graph:
-    #         graph[i] = []
-    #     graph[i].append(j)
-
-    
-    # print()
-    # print(f"Best network structure: {best.get_num_nodes()} nodes")
-    # for k in graph:
-    #     print(f"{k} - {graph[k]}")
-    # print()
-    # print("Accuracy: {:.2f}%".format(fit * 100))
-    # print("0 ^ 0 = {:.3f}".format(f1))
-    # print("1 ^ 0 = {:.3f}".format(f2))
-    # print("0 ^ 1 = {:.3f}".format(f3))
-    # print("1 ^ 1 = {:.3f}".format(f4))
-
 
 if __name__ == "__main__":
     main()

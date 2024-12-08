@@ -11,7 +11,6 @@ from genome import *
 
 
 class Specie(object):
-    print('adding new code')
     """A specie represents a set of genomes whose genomic distances 
     between them fall under the Brain's delta threshold.
     """
@@ -79,24 +78,21 @@ class ConvSpecie(Specie):
         super().__init__(max_fitness_history, *members)
 
     def breed(self, mutation_probabilities, breed_probabilities):
-
-         # Either mutate a clone or breed two random genomes
+        # Either mutate a clone or breed two random genomes
         population = list(breed_probabilities.keys())
         probabilities= [breed_probabilities[k] for k in population]
         choice = random.choices(population, weights=probabilities)[0]
-
+    
         if choice == "asexual" or len(self._members) == 1:
+            # Asexual reproduction for both conv and dense layers
             child = random.choice(self._members).clone()
             child.mutate(mutation_probabilities)
         elif choice == "sexual":
             (mom, dad) = random.sample(self._members, 2)
             # shouldn't need to change this; handle convolutions + FC crossover in genomic_crossover
-            child = genomic_crossover(mom, dad)
+            child = conv_genomic_crossover(mom, dad)
 
         return child
-    
-        pass
-        raise NotImplementedError("need to implement breed for convolutions")
 
 
 class Brain(object):
@@ -364,7 +360,7 @@ class ConvBrain(object):
             for s in self._species:
                 rep =  s._members[0]
                 dist = conv_genomic_distance(
-                    genome, rep, self._hyperparams.distance_weights
+                    genome, rep, self._hyperparams.distance_weights, self._hyperparams.conv_weights
                 )
                 if dist <= self._hyperparams.delta_threshold:
                     s._members.append(genome)
@@ -475,7 +471,6 @@ class ConvBrain(object):
         Any global state passed to the evaluator is copied and will not
         be modified at the parent process.
         """
-        print("EVALUATE PARALLEL")
         max_proc = max(mp.cpu_count()-1, 1)
         pool = mp.Pool(processes=max_proc)
         
