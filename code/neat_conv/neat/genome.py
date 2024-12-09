@@ -749,7 +749,6 @@ class NeuralNetGenome(BaseGenome):
         if len(inputs) != self._inputs:
             raise ValueError("Incorrect number of inputs.")
         
-        # TODO: change this; let's just nn.modules instead for convolutions
 
         # Set input values
         for i in range(self._inputs):
@@ -783,6 +782,8 @@ class NeuralNetGenome(BaseGenome):
     # override, need implementation for abstract method
     def mutate(self, probabilities):
         """Randomly mutate the genome to initiate variation."""
+        probabilities = { k:v for k, v in probabilities.items() if 'conv' not in k }
+
         if self.is_disabled():
             self.add_enabled()
 

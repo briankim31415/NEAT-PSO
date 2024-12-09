@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+import pickle
+
 
 from hyperparameters import Hyperparameters
 from neat import Brain, ConvBrain
@@ -15,6 +17,43 @@ from torchvision import transforms
 from torchvision.datasets import ImageNet
 
 from dataloader import DataLoader
+
+
+def save_best_genome(brain, filename):
+    """Save the best genome of the current generation to a file."""
+    best_genome = brain.get_fittest()
+    with open(filename, 'wb') as f:
+        pickle.dump(best_genome, f)
+    # print(f"Best genome saved to {filename}")
+
+def load_best_genome(filename):
+    """Load the best genome from a file."""
+    try:
+        with open(filename, 'rb') as f:
+            best_genome = pickle.load(f)
+        print(f"Best genome loaded from {filename}")
+        return best_genome
+    except FileNotFoundError:
+        print(f"No saved genome found at {filename}")
+        return None
+    
+def save_population(brain, filename):
+    """Save the entire population of the current generation to a file."""
+    with open(filename, 'wb') as f:
+        pickle.dump(brain, f)
+    # print(f"Population saved to {filename}")
+
+def load_population(filename):
+    """Load the entire population from a file."""
+    try:
+        with open(filename, 'rb') as f:
+            population = pickle.load(f)
+        print(f"Population loaded from {filename}")
+        return population
+    except FileNotFoundError:
+        print(f"No saved population found at {filename}")
+        return None
+
 
 class ResNet18WithoutFC(nn.Module):
     def __init__(self, resnet18_model):
@@ -64,14 +103,14 @@ def fitness(expected, output):
     num_correct = 0
     for i in range(len(output)):
         num_correct += (expected[i] == output[i])
-    print(f'Classification Accuracy: {num_correct / len(output)}')
+    # print(f'Classification Accuracy: {num_correct / len(output)}')
     
     return num_correct / len(output)
 
 def evaluate(genome, images, labels):
     """Evaluates the current genome."""
     predictions = []
-    NUM_TO_EVALUATE = 100
+    NUM_TO_EVALUATE = 150
     
     for i in range(NUM_TO_EVALUATE):
         loaded = load_image(images[i])
@@ -92,7 +131,13 @@ def evaluate(genome, images, labels):
             output_tensor = torch.tensor(output, dtype=torch.float32)
             softmax = torch.nn.Softmax(dim=0)
             prob = softmax(output_tensor)
+
             predicted_class = torch.argmax(prob).item()
+
+            top_k_probs, top_k_indices = torch.topk(prob, 3)
+            if labels[i] in top_k_indices.tolist():
+                predicted_class = labels[i]
+
             predictions.append(predicted_class)
     
     accuracy = fitness(labels[:NUM_TO_EVALUATE], predictions)
@@ -106,77 +151,63 @@ def main():
     labels = cifar.labels[0]
     sample_label = labels[0]
 
-    # num_total, num_correct = 0, 0
-    # for i in range(10):
-    #     sample_image, sample_label = sample_cifar_batch[i], labels[i]
-    #     x = load_image(sample_image)
-    #     output = resnet(x)
-    #     softmax = torch.nn.Softmax(dim=1)
-    #     prob = softmax(output)
- 
-    #     predicted_class = torch.argmax(prob)
-    #     print(predicted_class, sample_label)
-    #     if predicted_class == sample_label:
-    #         num_correct += 1
-    #     num_total += 1
-    #     # print(predicted_class, sample_label)
 
 
     # print(f'Accuracy: {(num_correct / num_total) * 100}%')
-        
 
-    hyperparameters = Hyperparameters()
-    brain = Brain(inputs=512, 
-                  outputs=10, 
-                  population=150, 
-                  hyperparams=hyperparameters)
-    
-    brain.generate()
-    print("Training...")
-    while brain.should_evolve():
-        brain.evaluate_parallel(evaluate, images=sample_cifar_batch, labels=labels[:len(sample_cifar_batch)])
-        # Print training progress
-        current_gen = brain.get_generation()
-        current_best = brain.get_fittest()
-        print("Current Accuracy: {:.2f}% | Generation {}/{}".format(
-            current_best.get_fitness() * 100, 
-            current_gen, 
-            hyperparameters.max_generations
-        ))
+    nodes_list = [0.01, 0.05, 0.1, 0.09, 0.01, 0.15, 0.2, 0.1]
+    edges_list = [0.09, 0.05, 0.1, 0.01, 0.09, 0.15, 0.1, 0.15]
+    weight_perturbs_list = [0.4, 0.4, 0.3, 0.4, 0.3, 0.2, 0.2, 0.25]
+    weight_sets_list = [0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1] 
+
+    for i in range(len(nodes_list)):
+        hyperparameters = Hyperparameters()
+        hyperparameters.mutation_probabilities['node'] = nodes_list[i]
+        hyperparameters.mutation_probabilities['edge'] = edges_list[i]
+        hyperparameters.mutation_probabilities['weight_perturb'] = weight_perturbs_list[i]
+        hyperparameters.mutation_probabilities['weight_set'] = weight_sets_list[i]
+        brain = Brain(inputs=512, 
+                    outputs=10, 
+                    population=200, 
+                    hyperparams=hyperparameters)
+        
+        brain.generate()
+        print(f"Training {i}...")
+        while brain.should_evolve():
+            brain.evaluate_parallel(evaluate, images=sample_cifar_batch, labels=labels[:len(sample_cifar_batch)])
+            # Print training progress
+            current_gen = brain.get_generation()
+            current_best = brain.get_fittest()
+            print("Current Accuracy: {:.2f}% | Generation {}/{}".format(
+                current_best.get_fitness() * 100, 
+                current_gen, 
+                hyperparameters.max_generations
+            ))
+            save_population(brain, "cur_population.pkl")
+            save_best_genome(brain, "cur_genome.pkl")
 
   
-    best = brain.get_fittest()
-    best_accuracy = evaluate(brain, sample_cifar_batch, labels[:len(sample_cifar_batch)])
-    print(f'Best Accuracy: {best_accuracy}')
+        best = brain.get_fittest()
+        best_accuracy = evaluate(best, sample_cifar_batch, labels[:len(sample_cifar_batch)])
+        print(f'Best Accuracy: {best_accuracy}')
 
+        # Save the population and best genome for later use
+        save_population(brain, f"exp_population_{i}.pkl")
+        save_best_genome(brain, f"exp_best_genome_{i}.pkl")
 
-    # Print dense layers...
-    edges = best.dense_layers.get_edges()
-    graph = {}
-    for (i, j) in edges:
-        if not edges[(i, j)].enabled:
-            continue
-        if i not in graph:
-            graph[i] = []
-        graph[i].append(j)
+    # # Print dense layers...
+    # edges = best.get_edges()
+    # graph = {}
+    # for (i, j) in edges:
+    #     if not edges[(i, j)].enabled:
+    #         continue
+    #     if i not in graph:
+    #         graph[i] = []
+    #     graph[i].append(j)
 
-    
-    # print(f"Best network structure: {best.dense_layers.get_num_nodes()} nodes")
-    # for k in graph:
-    #     print(f"{k} - {graph[k]}")
-
-    # G = nx.DiGraph()
-    # for i, js in graph.items():
-    #     for j in js:
-    #         G.add_edge(i, j)
-
-    # # Draw the graph
-    # plt.figure(figsize=(8, 6))
-    # pos = nx.spring_layout(G)  # Use spring layout for better visualization
-    # nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=1500, edge_color='gray', font_size=12, font_weight='bold')
-    # plt.title("Graph Representation of the Best Network Structure")
-    # plt.show()
-
+    # print(f"Best network structure: {best.get_num_nodes()} nodes")
+    # for k in sorted(list(graph.keys())):
+    #     print(f"{k} - {list(sorted(graph[k]))}")
     return
 
 
@@ -209,5 +240,97 @@ def main():
         print("Running forward...")
         sample_conv_genome.forward(output_image)
 
+
+def continue_checkpoint():
+    print("Continue checkpoint")
+    cifar = DataLoader('cifar')
+    sample_cifar_batch = cifar.data[0]
+    sample_image = sample_cifar_batch[0]
+    NUM_IN_BATCH = sample_cifar_batch.shape[0]
+    labels = cifar.labels[0]
+    sample_label = labels[0]
+
+    best_genome = load_best_genome('./cur_genome.pkl')
+    brain = load_population('./cur_population.pkl')
+    print(best_genome)
+    
+    # brain._hyperparams.mutation_probabilities = {
+    #         'node' : 0.1,
+    #         'edge' : 0.1,   # previously 0.09
+    #         'weight_perturb' : 0.4,
+    #         'weight_set' : 0.1,
+    #         'bias_perturb' : 0.2,
+    #         'bias_set' : 0.1,
+
+    #         'conv_add_node': 0.5,
+    #         'conv_delete_node': 0.0,
+    #         'conv_kernel': 0.5
+    #     }
+    # brain._hyperparams.max_generations += 30
+
+
+    # while brain.should_evolve():
+    #     brain.evaluate_parallel(evaluate, images=sample_cifar_batch, labels=labels[:len(sample_cifar_batch)])
+    #     # Print training progress
+    #     current_gen = brain.get_generation()
+    #     current_best = brain.get_fittest()
+    #     print("Current Accuracy: {:.2f}% | Generation {}/{}".format(
+    #         current_best.get_fitness() * 100, 
+    #         current_gen, 
+    #         brain._hyperparams.max_generations
+    #     ))
+    #     save_population(brain, "cur_population.pkl")
+    #     save_best_genome(brain, "cur_genome.pkl")
+
+    # best_genome = brain.get_fittest()
+    num_total, num_correct = 0, 0
+    for i in range(500):
+        sample_image, sample_label = sample_cifar_batch[i], labels[i]
+        loaded = load_image(sample_image)
+
+        resnet_output = resnet(loaded)
+        resnet_output = torch.flatten(resnet_output)
+
+        cifar_output = best_genome.forward(list(resnet_output.squeeze(0)))
+
+        output = []
+        for tensor in cifar_output:
+            if isinstance(tensor, torch.Tensor):
+                output.append(tensor.item())
+            else:
+                output.append(tensor)
+
+        # Convert to float tensor before applying softmax
+        output_tensor = torch.tensor(output, dtype=torch.float32)
+        softmax = torch.nn.Softmax(dim=0)
+        prob = softmax(output_tensor)
+
+        # predicted_class = torch.argmax(prob).item()
+        # if predicted_class == sample_label:
+        #     num_correct += 1
+
+        top_k_probs, top_k_indices = torch.topk(prob, 2)
+        if sample_label in top_k_indices.tolist():
+            num_correct += 1
+        
+        # print(predicted_class, sample_label)
+        num_total += 1
+    print(f'Classification Accuracy: {num_correct / num_total}')
+
+    # # Print dense layers...
+    # edges = best_genome.get_edges()
+    # graph = {}
+    # for (i, j) in edges:
+    #     if not edges[(i, j)].enabled:
+    #         continue
+    #     if i not in graph:
+    #         graph[i] = []
+    #     graph[i].append(j)
+
+    # print(f"Best network structure: {best_genome.get_num_nodes()} nodes")
+    # for k in sorted(list(graph.keys())):
+    #     print(f"{k} - {list(sorted(graph[k]))}")
+
 if __name__ == "__main__":
-    main()
+    # main()
+    continue_checkpoint()

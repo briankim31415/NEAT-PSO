@@ -35,3 +35,4 @@ neat_python.egg-info
 /neatpso
 
 neat-python/
+*.pkl

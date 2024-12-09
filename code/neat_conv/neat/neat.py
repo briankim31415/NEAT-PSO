@@ -222,7 +222,7 @@ class Brain(object):
         """
         self.update_fittest()
         fit = self._global_best._fitness <= self._hyperparams.max_fitness
-        end = self._generation != self._hyperparams.max_generations
+        end = self._generation < self._hyperparams.max_generations
 
         return fit and end
 
@@ -440,6 +440,7 @@ class ConvBrain(object):
         """Determine if the system should continue to evolve
         based on the maximum fitness and generation count.
         """
+        
         self.update_fittest()
         fit = self._global_best._fitness <= self._hyperparams.max_fitness
         end = self._generation != self._hyperparams.max_generations

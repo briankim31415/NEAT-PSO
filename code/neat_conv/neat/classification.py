@@ -62,7 +62,7 @@ def main():
                       conv_outputs=1028,
                       dense_inputs=1028,
                       dense_outputs=10,
-                      population=20,
+                      population=50,
                       hyperparams=hyperparameters)
     
     brain.generate()
