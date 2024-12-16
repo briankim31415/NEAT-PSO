@@ -134,9 +134,9 @@ def evaluate(genome, images, labels):
 
             predicted_class = torch.argmax(prob).item()
 
-            top_k_probs, top_k_indices = torch.topk(prob, 3)
-            if labels[i] in top_k_indices.tolist():
-                predicted_class = labels[i]
+            # top_k_probs, top_k_indices = torch.topk(prob, 3)
+            # if labels[i] in top_k_indices.tolist():
+            #     predicted_class = labels[i]
 
             predictions.append(predicted_class)
     
@@ -155,10 +155,15 @@ def main():
 
     # print(f'Accuracy: {(num_correct / num_total) * 100}%')
 
-    nodes_list = [0.01, 0.05, 0.1, 0.09, 0.01, 0.15, 0.2, 0.1]
-    edges_list = [0.09, 0.05, 0.1, 0.01, 0.09, 0.15, 0.1, 0.15]
-    weight_perturbs_list = [0.4, 0.4, 0.3, 0.4, 0.3, 0.2, 0.2, 0.25]
-    weight_sets_list = [0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1] 
+    # nodes_list = [0.01, 0.05, 0.1, 0.09, 0.01, 0.15, 0.2, 0.1]
+    # edges_list = [0.09, 0.05, 0.1, 0.01, 0.09, 0.15, 0.1, 0.15]
+    # weight_perturbs_list = [0.4, 0.4, 0.3, 0.4, 0.3, 0.2, 0.2, 0.25]
+    # weight_sets_list = [0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1] 
+
+    nodes_list = [0.05]
+    edges_list = [0.05]
+    weight_perturbs_list = [0.4]
+    weight_sets_list = [0.1]
 
     for i in range(len(nodes_list)):
         hyperparameters = Hyperparameters()
@@ -183,8 +188,8 @@ def main():
                 current_gen, 
                 hyperparameters.max_generations
             ))
-            save_population(brain, "cur_population.pkl")
-            save_best_genome(brain, "cur_genome.pkl")
+            save_population(brain, "final_cur_population.pkl")
+            save_best_genome(brain, "final_cur_genome.pkl")
 
   
         best = brain.get_fittest()
@@ -192,8 +197,8 @@ def main():
         print(f'Best Accuracy: {best_accuracy}')
 
         # Save the population and best genome for later use
-        save_population(brain, f"exp_population_{i}.pkl")
-        save_best_genome(brain, f"exp_best_genome_{i}.pkl")
+        save_population(brain, f"final_exp_population_{i}.pkl")
+        save_best_genome(brain, f"final_exp_best_genome_{i}.pkl")
 
     # # Print dense layers...
     # edges = best.get_edges()
@@ -250,8 +255,8 @@ def continue_checkpoint():
     labels = cifar.labels[0]
     sample_label = labels[0]
 
-    best_genome = load_best_genome('./cur_genome.pkl')
-    brain = load_population('./cur_population.pkl')
+    best_genome = load_best_genome('./final_exp_best_genome_0.pkl')
+    brain = load_population('./final_exp_population_0.pkl')
     print(best_genome)
     
     # brain._hyperparams.mutation_probabilities = {
@@ -284,7 +289,7 @@ def continue_checkpoint():
 
     # best_genome = brain.get_fittest()
     num_total, num_correct = 0, 0
-    for i in range(500):
+    for i in range(1000):
         sample_image, sample_label = sample_cifar_batch[i], labels[i]
         loaded = load_image(sample_image)
 
@@ -305,13 +310,13 @@ def continue_checkpoint():
         softmax = torch.nn.Softmax(dim=0)
         prob = softmax(output_tensor)
 
-        # predicted_class = torch.argmax(prob).item()
-        # if predicted_class == sample_label:
-        #     num_correct += 1
-
-        top_k_probs, top_k_indices = torch.topk(prob, 2)
-        if sample_label in top_k_indices.tolist():
+        predicted_class = torch.argmax(prob).item()
+        if predicted_class == sample_label:
             num_correct += 1
+
+        # top_k_probs, top_k_indices = torch.topk(prob, 10)
+        # if sample_label in top_k_indices.tolist():
+        #     num_correct += 1
         
         # print(predicted_class, sample_label)
         num_total += 1

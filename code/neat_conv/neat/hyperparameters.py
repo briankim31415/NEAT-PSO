@@ -9,7 +9,7 @@ class Hyperparameters(object):
             'weight' : 1.0,
             'bias' : 1.0
         }
-        self.default_activation = sigmoid
+        self.default_activation = relu
 
         self.max_fitness = float('inf')
         self.max_generations = 50
@@ -38,7 +38,10 @@ class Hyperparameters(object):
             'weight_perturb': 0.35, # Slightly lower to balance exploration and exploitation
             'weight_set': 0.15,    # Increase new weight assignment for broader exploration
             'bias_perturb': 0.35,  # Keep similar for stability
-            'bias_set': 0.15       # Slightly higher to allow more random bias exploration
+            'bias_set': 0.15,       # Slightly higher to allow more random bias exploration
+            'conv_add_node': 0.4,
+            'conv_delete_node': 0.1,
+            'conv_kernel': 0.5
         }
 
         self.conv_weights = {

@@ -14,105 +14,6 @@ from torchvision.models import resnet18, ResNet18_Weights, vgg16, VGG16_Weights
 
 from collections import OrderedDict
 
-class PretrainedLayerBank:
-    """Bank of pretrained convolutional and pooling layers from popular architectures"""
-    def __init__(self):
-        self.conv_layers = []
-        self.pool_layers = []
-        
-        # Load pretrained models
-        vgg = vgg16(weights=VGG16_Weights.DEFAULT)
-        resnet = resnet18(weights=ResNet18_Weights.DEFAULT)
-        
-        # Extract layers from VGG16
-        for layer in vgg.features:
-            if isinstance(layer, nn.Conv2d):
-                weights = layer.weight.detach().cpu().numpy()
-                self.conv_layers.append({
-                    'kernel_size': layer.kernel_size[0],
-                    'stride': layer.stride[0],
-                    'in_channels': layer.in_channels,
-                    'out_channels': layer.out_channels,
-                    'weights': weights
-                })
-            elif isinstance(layer, nn.MaxPool2d):
-                self.pool_layers.append({
-                    'kernel_size': layer.kernel_size,
-                    'stride': layer.stride,
-                    'operation': 'max'
-                })
-
-        
-        # Extract layers from ResNet18
-        def extract_conv_layers(module):
-            for layer in module.children():
-                if isinstance(layer, nn.Conv2d):
-                    weights = layer.weight.detach().cpu().numpy()
-                    self.conv_layers.append({
-                        'kernel_size': layer.kernel_size[0],
-                        'stride': layer.stride[0],
-                        'in_channels': layer.in_channels,
-                        'out_channels': layer.out_channels,
-                        'weights': weights
-                    })
-                elif isinstance(layer, nn.MaxPool2d):
-                    self.pool_layers.append({
-                        'kernel_size': layer.kernel_size,
-                        'stride': layer.stride,
-                        'operation': 'max'
-                    })
-                elif hasattr(layer, 'children'):
-                    extract_conv_layers(layer)
-                    
-        extract_conv_layers(resnet)
-        
-    def get_random_conv_layer(self, desired_in_channels):
-        """Get a random pretrained conv layer, adjusting input channels if needed"""
-        layer_info = random.choice(self.conv_layers)
-        weights = layer_info['weights']
-        
-        # Adjust input channels if needed while preserving pretrained weights
-        if layer_info['in_channels'] != desired_in_channels:
-            old_weights = weights
-            new_weights = np.zeros((
-                layer_info['out_channels'],
-                desired_in_channels,
-                layer_info['kernel_size'],
-                layer_info['kernel_size']
-            ))
-            
-            # Copy weights for existing channels, initialize rest randomly
-            channels_to_copy = min(desired_in_channels, layer_info['in_channels'])
-            new_weights[:, :channels_to_copy] = old_weights[:, :channels_to_copy]
-            
-            if desired_in_channels > layer_info['in_channels']:
-                # Initialize remaining channels using Kaiming initialization
-                fan_in = desired_in_channels * layer_info['kernel_size'] * layer_info['kernel_size']
-                std = math.sqrt(2.0 / fan_in)
-                new_weights[:, channels_to_copy:] = np.random.normal(0, std, 
-                    (layer_info['out_channels'], desired_in_channels - channels_to_copy, 
-                     layer_info['kernel_size'], layer_info['kernel_size']))
-            
-            weights = new_weights
-            
-        return ConvNode(
-            kernel_size=layer_info['kernel_size'],
-            stride=layer_info['stride'],
-            activation='relu',
-            filter_weights=weights
-        )
-    
-    def get_random_pool_layer(self):
-        """Get a random pooling layer configuration"""
-        layer_info = random.choice(self.pool_layers)
-        return PoolNode(
-            kernel_size=layer_info['kernel_size'],
-            stride=layer_info['stride'],
-            pool_operation=layer_info['operation'],
-            activation='relu'
-        )
-
-
 class Edge(object):
     """A gene object representing an edge in the neural network."""
     def __init__(self, weight):
@@ -190,7 +91,7 @@ def conv_genomic_distance(conv_genome_a, conv_genome_b, distance_weights, conv_w
         stride_term = conv_weights['stride_term'] * stride_diff / matching_nodes
         conv_distance = structural_distance + weight_term + kernel_term + stride_term
 
-    print(f"Convolutional Distance: {conv_distance}, Dense Distance: {dense_distance}")
+    # print(f"Convolutional Distance: {conv_distance}, Dense Distance: {dense_distance}")
     return conv_distance + dense_distance
 
 
@@ -405,8 +306,6 @@ class ConvolutionalGenome(BaseGenome):
         self._conv_unhidden = 1  # last index of unhidden node (-1, 0)
         self._conv_max_node = 1   # for creating a new_node, start at 1 for convolutional nodes indexing only
 
-        self.layer_bank = PretrainedLayerBank()
-
         self.choices = [16, 32, 64, 128]
         self.kernel_choices = [2, 3, 4]
         self.stride_choices = [1, 2, 3]
@@ -423,21 +322,6 @@ class ConvolutionalGenome(BaseGenome):
         second_stride = self.stride_choices[random.randint(0, len(self.stride_choices) - 1)]
 
         # Initialize with some pretrained layers
-        self._conv_nodes = []
-        # # Add 2-3 initial layers from pretrained bank
-        # current_channels = 3  # Starting with RGB input
-        # num_initial_layers = 3
-        # for _ in range(num_initial_layers):
-        #     # Add conv layer
-        #     conv_node = self.layer_bank.get_random_conv_layer(current_channels)
-        #     self._conv_nodes.append(conv_node)
-        #     current_channels = conv_node.filter_weights.shape[0]
-            
-        #     # Maybe add pooling
-        #     if random.random() < 0.5:
-        #         self._conv_nodes.append(self.layer_bank.get_random_pool_layer())
-
-
         self._conv_nodes = [
             ConvNode(
                 kernel_size=first_kernel_size,
@@ -554,7 +438,7 @@ class ConvolutionalGenome(BaseGenome):
                     if x.shape[2] < kernel_size[0] or x.shape[3] < kernel_size[1]:
                         # print(f"Skipping layer {layer} due to input size: {x.shape[2:]} being too small for kernel size: {kernel_size}")
                         layers_to_remove.add(layer)
-                        continue  # Skip this layer
+                        break  # Skip this layer
 
                 x = layer(x)
 
@@ -591,9 +475,10 @@ class ConvolutionalGenome(BaseGenome):
             
             output = self.dense_layers.forward(x)
 
-            probabilities = softmax(output)
+            # probabilities = softmax(output)
     
-        return np.argmax(probabilities)
+        # return np.argmax(probabilities)
+        return output
         
     def mutate(self, probabilities):
         dense_layer_mutation_probs = { k:v for k, v in probabilities.items() if 'conv' not in k }
@@ -608,38 +493,12 @@ class ConvolutionalGenome(BaseGenome):
         elif choice == 'conv_delete_node':
             self.conv_delete_node()
         elif choice == 'conv_kernel':
-            # self.conv_shift_kernel()
+            self.conv_shift_kernel()
             pass
 
         # Mutate the dense layers
         self.dense_layers.mutate(dense_layer_mutation_probs)
 
-    # def conv_add_node(self):
-    #     """Modified to use pretrained layers"""
-    #     if len(self._conv_nodes) >= 8:  # Limit maximum depth
-    #         return
-            
-    #     random_index = random.randint(1, len(self._conv_nodes))
-        
-    #     # Determine input channels from previous conv layer
-    #     prev_channels = 3  # default for first layer
-    #     for node in reversed(self._conv_nodes[:random_index]):
-    #         if isinstance(node, ConvNode):
-    #             prev_channels = node.filter_weights.shape[0]
-    #             break
-        
-    #     # Add either conv or pool layer
-    #     if random.random() < 0.7:  # Favor conv layers
-    #         new_node = self.layer_bank.get_random_conv_layer(prev_channels)
-    #         self._conv_nodes.insert(random_index, new_node)
-            
-    #         # Maybe add pooling after conv
-    #         if random.random() < 0.3:
-    #             pool_node = self.layer_bank.get_random_pool_layer()
-    #             self._conv_nodes.insert(random_index + 1, pool_node)
-    #     else:
-    #         new_node = self.layer_bank.get_random_pool_layer()
-    #         self._conv_nodes.insert(random_index, new_node)
 
     def conv_add_node(self):
         probability_conv = random.random()
@@ -658,7 +517,7 @@ class ConvolutionalGenome(BaseGenome):
             new_node = ConvNode(kernel_size=new_kernel_size,
                                 stride=new_stride,
                                 activation='relu',
-                                filter_weights=np.random.normal(0, 1, (next_in_channels, prev_out_channels, new_kernel_size, new_kernel_size)))
+                                filter_weights=np.random.normal(0, 1, (prev_out_channels, next_in_channels, new_kernel_size, new_kernel_size)))
         else:
             # add relu node
             pool_operations = ['max', 'avg']
@@ -682,18 +541,16 @@ class ConvolutionalGenome(BaseGenome):
 
     def conv_shift_kernel(self):
         # print(f"Mutating convolutional kernel...")
+
         mutatable_conv_nodes = [node for node in self._conv_nodes[1:] if isinstance(node, ConvNode)]
+
         if len(mutatable_conv_nodes):
-            chosen_conv_node = random.choice(mutatable_conv_nodes)
+            chosen_conv_node = mutatable_conv_nodes[random.randint(0, len(mutatable_conv_nodes) - 1)]
+            # print(chosen_conv_node.filter_weights)
             filter_shape = chosen_conv_node.filter_weights.shape
-            
-            # Calculate appropriate scale for the noise
-            fan_in = filter_shape[1] * filter_shape[2] * filter_shape[3]
-            std = math.sqrt(2.0 / fan_in) * 0.1  # 10% of the standard initialization
-            
-            mask = np.random.random(filter_shape) < 0.3  # Only modify 30% of weights
-            noise = np.random.normal(0, std, filter_shape)
-            chosen_conv_node.filter_weights += mask * noise
+            noise = np.random.uniform(-10, 10, filter_shape)
+            chosen_conv_node.filter_weights += noise
+
 
     def reset(self):
         """Reset the genome's state."""
